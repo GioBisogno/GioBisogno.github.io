@@ -3,19 +3,26 @@ import { GLTFLoader } from '../../libs/three/jsm/GLTFLoader.js';
 import { RGBELoader } from '../../libs/three/jsm/RGBELoader.js';
 import { ARButton } from '../../libs/ARButton.js';
 import { LoadingBar } from '../../libs/LoadingBar.js';
+import { ControllerGestures } from '../../libs/ControllerGestures.js';
+import { Player } from '../../libs/Player.js';
+import { OrbitControls } from '../../libs/three/jsm/OrbitControls.js';
+
 
 class App{
 	constructor(){
 		const container = document.createElement( 'div' );
 		document.body.appendChild( container );
+
+        this.clock = new THREE.Clock();
         
         this.loadingBar = new LoadingBar();
         this.loadingBar.visible = false;
 
 		this.assetsPath = '../../assets/ar-shop/';
         
-		this.camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 1000 );
-		this.camera.position.set( 0, 1.6, 0 );
+		this.camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 1000 );
+		//this.camera.position.set( 0, 1.6, 0 );
+        
         
 		this.scene = new THREE.Scene();
 
@@ -27,11 +34,23 @@ class App{
 		this.renderer.setPixelRatio( window.devicePixelRatio );
 		this.renderer.setSize( window.innerWidth, window.innerHeight );
         this.renderer.outputEncoding = THREE.sRGBEncoding;
+        
 		container.appendChild( this.renderer.domElement );
         this.setEnvironment();
+
+        this.controls = new OrbitControls( this.camera, this.renderer.domElement );
+        this.controls.target.set(0, 3.5, 0);
+        this.controls.update();
+
+        this.origin = new THREE.Vector3();
+        this.euler = new THREE.Euler();
+        this.quaternion = new THREE.Quaternion();
+
         
         this.reticle = new THREE.Mesh(
-            new THREE.RingBufferGeometry( 0.15, 0.2, 32 ).rotateX( - Math.PI / 2 ),
+            new THREE.RingBufferGeometry( 0.05, 0.1, 32 ).rotateX( - Math.PI / 2 ),
+            //new THREE.RingBufferGeometry( 0, 0.1, 1 ).rotateX( - Math.PI / 2 ),
+            //new THREE.PlaneGeometry(0.2,.01,1,1),
             new THREE.MeshBasicMaterial()
         );
         
@@ -68,11 +87,11 @@ class App{
         this.hitTestSource = null;
         
         function onSelect() {
-            if (self.chair===undefined) return;
+            if (self.knight.object===undefined) return;
             
             if (self.reticle.visible){
-                self.chair.position.setFromMatrixPosition( self.reticle.matrix );
-                self.chair.visible = true;
+                self.knight.object.position.setFromMatrixPosition( self.reticle.matrix );
+                self.knight.object.visible = true;
             }
         }
 
@@ -80,6 +99,64 @@ class App{
         this.controller.addEventListener( 'select', onSelect );
         
         this.scene.add( this.controller );
+
+
+        this.gestures = new ControllerGestures( this.renderer );
+        this.gestures.addEventListener( 'tap', (ev)=>{
+            //console.log( 'tap' ); 
+            //self.ui.updateElement('info', 'tap' );
+            if (!self.knight.object.visible){
+                self.knight.object.visible = true;
+                self.knight.object.position.set( 0, -0.3, -0.5 ).add( ev.position );
+                self.scene.add( self.knight.object ); 
+            }
+        });
+        this.gestures.addEventListener( 'doubletap', (ev)=>{
+            //console.log( 'doubletap'); 
+            //self.ui.updateElement('info', 'doubletap' );
+        });
+        this.gestures.addEventListener( 'press', (ev)=>{
+            //console.log( 'press' );    
+            //self.ui.updateElement('info', 'press' );
+        });
+        this.gestures.addEventListener( 'pan', (ev)=>{
+            //console.log( ev );
+            if (ev.initialise !== undefined){
+                self.startPosition = self.knight.object.position.clone();
+            }else{
+                const pos = self.startPosition.clone().add( ev.delta.multiplyScalar(3) );
+                self.knight.object.position.copy( pos );
+                //self.ui.updateElement('info', `pan x:${ev.delta.x.toFixed(3)}, y:${ev.delta.y.toFixed(3)}, x:${ev.delta.z.toFixed(3)}` );
+            } 
+        });
+        this.gestures.addEventListener( 'swipe', (ev)=>{
+            //console.log( ev );   
+            //self.ui.updateElement('info', `swipe ${ev.direction}` );
+            /* if (self.knight.object.visible){
+                self.knight.object.visible = false;
+                self.scene.remove( self.knight.object ); 
+            }*/ 
+        });
+        this.gestures.addEventListener( 'pinch', (ev)=>{
+            //console.log( ev );  
+            if (ev.initialise !== undefined){
+                self.startScale = self.knight.object.scale.clone();
+            }else{
+                const scale = self.startScale.clone().multiplyScalar(ev.scale);
+                self.knight.object.scale.copy( scale );
+                //self.ui.updateElement('info', `pinch delta:${ev.delta.toFixed(3)} scale:${ev.scale.toFixed(2)}` );
+            }
+        });
+        this.gestures.addEventListener( 'rotate', (ev)=>{
+            //      sconsole.log( ev ); 
+            if (ev.initialise !== undefined){
+                self.startQuaternion = self.knight.object.quaternion.clone();
+            }else{
+                self.knight.object.quaternion.copy( self.startQuaternion );
+                self.knight.object.rotateY( ev.theta );
+                //self.ui.updateElement('info', `rotate ${ev.theta.toFixed(3)}`  );
+            }
+        });
     }
 	
     resize(){
@@ -105,9 +182,13 @@ class App{
             console.error( 'An error occurred setting the environment');
         } );
     }
+
+    initScene(){
+        
+    }
     
 	showChair(id){
-        this.initAR();
+        
         
 		const loader = new GLTFLoader( ).setPath(this.assetsPath);
         const self = this;
@@ -117,14 +198,39 @@ class App{
 		// Load a glTF resource
 		loader.load(
 			// resource URL
-			`chair${id}.gltf`,
+			`chair${id}.glb`,
 			// called when the resource is loaded
 			function ( gltf ) {
 
-				self.scene.add( gltf.scene );
-                self.chair = gltf.scene;
-        
-                self.chair.visible = false; 
+				const object = gltf.scene.children[0];
+				
+				object.traverse(function(child){
+					if (child.isMesh){
+                        child.material.metalness = 0;
+                        child.material.roughness = 1;
+					}
+				});
+				
+				const options = {
+					object: object,
+					speed: 0.5,
+					animations: gltf.animations,
+					clip: gltf.animations[0],
+					app: self,
+					name: 'knight',
+					npc: false
+				};
+				
+				self.knight = new Player(options);
+                self.knight.object.visible = false;
+				
+				//self.knight.action = 'Saba__ultra_invisible_ultra_thin_TOMA1';
+				const scale = 1;
+				self.knight.object.scale.set(scale, scale, scale); 
+				
+                self.loadingBar.visible = false;
+                self.renderer.setAnimationLoop( self.render.bind(self) );
+
                 
                 self.loadingBar.visible = false;
                 
@@ -143,6 +249,7 @@ class App{
 
 			}
 		);
+        this.initAR();
 	}			
     
     initAR(){
@@ -169,9 +276,9 @@ class App{
 
             currentSession = null;
             
-            if (self.chair !== null){
-                self.scene.remove( self.chair );
-                self.chair = null;
+            if (self.knight.object !== null){
+                self.scene.remove( self.knight.object );
+                self.knight.object = null;
             }
             
             self.renderer.setAnimationLoop( null );
@@ -237,12 +344,19 @@ class App{
     }
     
 	render( timestamp, frame ) {
+        const dt = this.clock.getDelta();
 
         if ( frame ) {
             if ( this.hitTestSourceRequested === false ) this.requestHitTestSource( )
 
             if ( this.hitTestSource ) this.getHitTestResults( frame );
         }
+
+        if ( this.renderer.xr.isPresenting ){
+            this.gestures.update();
+            //this.ui.update();
+        }
+        if ( this.knight !== undefined ) this.knight.update(dt);
 
         this.renderer.render( this.scene, this.camera );
 
